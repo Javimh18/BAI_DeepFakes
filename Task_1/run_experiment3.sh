@@ -1,0 +1,5 @@
+python src/train_cnn.py --path "models/cnn/Experiment3/XU/Resnet18" --model "Resnet18" --LR 0.0001 --BS 16 --epochs 25 --initialization "Xavier_Uniform" 
+python src/train_cnn.py --path "models/cnn/Experiment3/XU/Resnet34" --model "Resnet34" --LR 0.0001 --BS 16 --epochs 25 --initialization "Xavier_Uniform" 
+python src/train_cnn.py --path "models/cnn/Experiment3/XU/Resnet50" --model "Resnet50" --LR 0.0001 --BS 16 --epochs 25 --initialization "Xavier_Uniform"
+python src/train_cnn.py --path "models/cnn/Experiment3/XU/Resnet50Wide" --model "Resnet50Wide" --LR 0.0001 --BS 16 --epochs 25 --initialization "Xavier_Uniform" 
+python src/train_cnn.py --path "models/cnn/Experiment3/XU/Resnet101" --model "Resnet101" --LR 0.0001 --BS 32 --epochs 25 --initialization "Xavier_Uniform" 

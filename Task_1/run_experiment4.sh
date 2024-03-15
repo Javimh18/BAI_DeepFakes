@@ -1,0 +1,4 @@
+python src/train_cnn.py --path "models/cnn/Experiment4/erasing" --model "Resnet34" --LR 0.0001 --BS 16 --epochs 25 --initialization "Xavier_Uniform" --data_aug "erasing"
+python src/train_cnn.py --path "models/cnn/Experiment4/hflip" --model "Resnet34" --LR 0.0001 --BS 16 --epochs 25 --initialization "Xavier_Uniform" --data_aug "hflip"
+python src/train_cnn.py --path "models/cnn/Experiment4/vflip" --model "Resnet34" --LR 0.0001 --BS 16 --epochs 25 --initialization "Xavier_Uniform" --data_aug "vflip"
+python src/train_cnn.py --path "models/cnn/Experiment4/All" --model "Resnet34" --LR 0.0001 --BS 32 --epochs 25 --initialization "Xavier_Uniform" --data_aug "all"
