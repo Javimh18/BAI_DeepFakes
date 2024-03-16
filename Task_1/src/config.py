@@ -22,5 +22,5 @@ VAE_LR = 5e-2 # lr = 0.01
 VAE_WEIGHT_DECAY = 5e-7
 VAE_BETAS = (0.95, 0.999)
 VAE_REG_PAR = 0# 5e-3 at first, but after few epochs should be increasing to give the KL Loss more importance
-VAE_IM_HEIGHT = 64
-VAE_IM_WIDTH = 64
+VAE_IM_HEIGHT = 96
+VAE_IM_WIDTH = 96
