@@ -27,7 +27,7 @@ if __name__ == '__main__':
     model = VAE(input_size=(3, VAE_IM_HEIGHT, VAE_IM_WIDTH),
                     latent_dim=2048,
                     n_convLayers=5,
-                    n_convChannels=[256, 128, 64, 32, 64],
+                    n_convChannels=[256, 128, 64, 32, 16],
                     filter_sizes=[4, 3, 3, 3, 3],
                     strides=[2, 1, 1, 1, (2,1)], # change it for (1,2) in the last layer's stride
                     n_fcLayer=1, 
