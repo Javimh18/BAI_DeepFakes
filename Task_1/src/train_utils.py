@@ -1,14 +1,16 @@
-import torch
-import numpy as np 
 import os
+import torch
+
+import numpy as np 
 from tqdm import tqdm
 from config import VAE_ALPHA
+from sklearn.metrics import roc_curve, auc
 
-import torch
 import torch.nn as nn
 import torch.nn.init as init 
+import matplotlib.pyplot as plt
 
-def train_model(model, train_loader, val_loader, test_loader, optimizer, criterion, num_epochs, device):
+def train_model(model, train_loader, val_loader, test_loader, optimizer, criterion, num_epochs, device, path):
 
     list_loss_train = []
     list_loss_val = []
@@ -16,6 +18,7 @@ def train_model(model, train_loader, val_loader, test_loader, optimizer, criteri
     list_acc_train = []
     list_acc_val = []    
 
+    best_val_accuracy = 0
 
     model.to(device)
     print("Training on:", device)
@@ -46,6 +49,7 @@ def train_model(model, train_loader, val_loader, test_loader, optimizer, criteri
         model.eval()
         val_loss = 0.0
         correct_val = 0
+        val_accuracy = 0
 
         with torch.no_grad():
             for inputs, labels in val_loader:
@@ -60,6 +64,10 @@ def train_model(model, train_loader, val_loader, test_loader, optimizer, criteri
         val_loss = val_loss / len(val_loader.dataset)
         val_accuracy = correct_val / len(val_loader.dataset)
 
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            torch.save(model.state_dict(), os.path.join(path, 'best_val.pth'))
+
         list_loss_train.append(train_loss)
         list_loss_val.append(val_loss)
 
@@ -67,50 +75,82 @@ def train_model(model, train_loader, val_loader, test_loader, optimizer, criteri
         list_acc_val.append(val_accuracy)
 
         print(f'Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Train Acc: {train_accuracy:.4f}, Val Loss: {val_loss:.4f}, Val Acc: {val_accuracy:.4f}')
-
+       # print(f"{correct_val, len(val_loader.dataset)}")
        # _, _, _ , _ = test_model(model, test_loader, criterion, device)
 
     return list_loss_train, list_acc_train, list_loss_val, list_acc_val
 
-def test_model(model, test_loader, criterion, device):
+def validate_model(best_model, val_loader, criterion, device):
+
+    list_outputs = []
+    list_labels = []  
+    
+    best_model.to(device)
+
+    best_model.eval()
+    val_loss = 0
+    correct_val = 0
+
+    with torch.no_grad():
+            for inputs, labels in val_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = best_model(inputs)
+                loss = criterion(outputs, labels.unsqueeze(1).float())
+
+                val_loss += loss.item() * inputs.size(0)
+                predicted = torch.round(outputs)
+                correct_val += (predicted == labels.unsqueeze(1)).sum().item()
+
+                for output, label in zip(outputs, labels):
+                    list_outputs.append(output.cpu().squeeze().numpy())
+                    list_labels.append(label.cpu().squeeze().numpy())
+
+    accuracy_validation = correct_val/len(val_loader.dataset)
+    average_loss = val_loss/len(val_loader.dataset)
+
+    auc_best_val, _, _ = computeROC(list_labels, list_outputs, path=None)
+
+    print(f'Best Validation => Loss: {average_loss:.4f}, Accuracy:{accuracy_validation:.4f}%, AUC:{auc_best_val:.4f}')
+   # print(f"{correct_val, len(val_loader.dataset)}")
+    return accuracy_validation, average_loss, auc_best_val
+
+
+def test_model(best_model, test_loader, criterion, device):
 
     list_loss_test = []
     list_acc_test = [] 
 
     list_outputs = []
     list_labels = []  
+    
+    best_model.to(device)
 
-    model.to(device)
-
-    model.eval()
+    best_model.eval()
     test_loss = 0
     hits = 0
-    total = 0
 
     with torch.no_grad():
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
+            outputs = best_model(inputs)
             loss = criterion(outputs, labels.unsqueeze(1).float())
-            test_loss += loss.item()
 
+            test_loss += loss.item() * inputs.size(0)
             predicted = torch.round(outputs)
             hits += (predicted == labels.unsqueeze(1)).sum().item()
-            total += labels.size(0)
                         
-            outputs_numpy = outputs.cpu().squeeze().numpy()
             labels_numpy = labels.cpu().squeeze().numpy()
 
-            for output, label in zip(outputs_numpy, labels_numpy):
-                list_outputs.append(output)
-                list_labels.append(label)
+            for output, label in zip(outputs, labels):
+                list_outputs.append(output.cpu().squeeze().numpy())
+                list_labels.append(label.cpu().squeeze().numpy())
 
-    accuracy = hits/total
-    average_loss = test_loss/len(test_loader)
+    accuracy = hits/len(test_loader.dataset)
+    average_loss = test_loss/len(test_loader.dataset)
 
-    print(f'Test Loss: {average_loss:.4f}, Accuracy:{accuracy:.4f}%')
+   # print(accuracy, average_loss)
 
-    return list_loss_test, list_acc_test, list_outputs, list_labels
+    return average_loss, accuracy, list_outputs, list_labels
 
 def initialize_weights_xavier_uniform(m):
     if isinstance(m, nn.Linear):
@@ -129,6 +169,58 @@ def initialize_weights_he(m):
         init.kaiming_uniform_(m.weight)
         if m.bias is not None:
             init.constant_(m.bias, 0)
+
+
+def computeROC(list_labels, list_outputs, path):
+    fpr, tpr, thresholds = roc_curve(list_labels, list_outputs)
+    roc_auc = auc(fpr, tpr)
+
+    if path:
+        plt.figure()
+        plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver Operating Characteristic (ROC)')
+        plt.legend(loc="lower right")
+        plt.savefig(os.path.join(path, 'ROC.png'))
+        plt.close()    
+
+    return roc_auc, fpr, tpr
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class VAETrainer:
     """

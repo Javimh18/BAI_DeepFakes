@@ -18,56 +18,121 @@ import numpy as np
 
 import torchvision
 import torch.optim
+import argparse
 import random
 import os
 
+from facenet_pytorch import MTCNN, InceptionResnetV1
+
 from dataset_utils import DeepFake, read_dataset, save_test_results
-from train_utils import train_model, test_model, initialize_weights_xavier_uniform, initialize_weights_xavier_normal
-from config import TRAIN_FILE, VALIDATION_FILE, TEST_FILE, DATASET_PATH, CNN_WEIGHT_INIT,\
-    CNN_MODEL_NAME, CNN_BATCH_SIZE, CNN_LEARNING_RATE, CNN_NUM_EPOCHS, SEED, MEAN, STD
+from train_utils import train_model, validate_model, test_model, initialize_weights_xavier_uniform, initialize_weights_xavier_normal, initialize_weights_he, computeROC
+from config import TRAIN_FILE, VALIDATION_FILE, TEST_FILE, SEED, MEAN, STD, DATASET_PATH
 
-
-## TO DO: ##
-# Early stopping
-# Otras arquitecturas???
-# Data augmentation
 
 if __name__ == '__main__':
-    
+
+    parser = argparse.ArgumentParser(description="config file")
+    parser.add_argument("--path", default="models", type=str)
+    parser.add_argument("--model", default="Resnet18", type=str)
+    parser.add_argument("--LR", default=0.0001, type=float)
+    parser.add_argument("--BS", default=16, type=int)
+    parser.add_argument("--epochs", default=25, type=int)
+    parser.add_argument("--initialization", default=None, type=str)
+    parser.add_argument("--data_aug", default=None, type=str)
+    parser.add_argument("--show_model", default=False)
+    parser.add_argument("--train_all", default=False)
+    args = parser.parse_args()
+
+    RESULTS_PATH = args.path
+    MODEL = args.model
+    BATCH_SIZE = args.BS
+    LEARNING_RATE = args.LR
+    EPOCHS = args.epochs
+    INIT = args.initialization
+    AUG = args.data_aug
+
     # Model name (in order to save results and weights)
-    model_name = CNN_MODEL_NAME + 'BS_' + str(CNN_BATCH_SIZE) + 'LR_' + str(CNN_LEARNING_RATE) + 'E_' + str(CNN_NUM_EPOCHS)
-    # Path to save model weights
-    save_model_path = os.path.join('models/cnn/', model_name)  
-    # Path to save training figures, ROC, test results
-    save_model_results = os.path.join('results/cnn/', model_name) 
-    
+    model_name = MODEL + 'BS_' + str(BATCH_SIZE) + 'LR_' + str(LEARNING_RATE) + 'E_' + str(EPOCHS)
+
     # check for existence of the path where the results and the model are going to be saved
-    if not os.path.exists(save_model_path):
-        os.makedirs(save_model_path)
-        
-    if not os.path.exists(save_model_results):
-        os.makedirs(save_model_results)
-        
-    # Default transformation: resize to 512, 512, convert to tensor and normalization  
-    transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize((512, 512)),
+    if not os.path.exists(RESULTS_PATH):
+        os.makedirs(RESULTS_PATH)
+
+    # Initialize facedetector 
+    faceDetector = MTCNN(keep_all=True)
+
+    # Default transformation: resize to 256, 256, convert to tensor and normalization for evaluation 
+    eval_transform = transforms.Compose([ 
+        transforms.Resize((256, 256)),
         transforms.ToTensor(),
         transforms.Normalize(mean=MEAN, std=STD)
-    ])
+     ])
+
+    if AUG == None:
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD)
+        ])
+    elif AUG == "erasing":
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD),
+            transforms.RandomErasing(p=0.75, scale=(0.02, 0.33), ratio=(0.3, 3.3))
+        ])
+    elif AUG == "vflip":
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD),
+            transforms.RandomVerticalFlip(p=0.5)
+        ])
+    elif AUG == "hflip":
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD),
+            transforms.RandomHorizontalFlip(p=0.5)
+        ])
+    elif  AUG == "all":
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomVerticalFlip(p=0.5),
+            transforms.RandomErasing(p=0.75, scale=(0.02, 0.33), ratio=(0.3, 3.3))
+        ])
+
 
     # Create the train, validation adn test dataloaders 
-    paths_list, images_list, labels_list = read_dataset(os.path.join(DATASET_PATH, TRAIN_FILE))
-    train_dataset = DeepFake(paths_list, images_list, labels_list, transform)
-    train_loader = DataLoader(train_dataset, batch_size=CNN_BATCH_SIZE)
 
-    paths_list, images_list, labels_list = read_dataset(os.path.join(DATASET_PATH, VALIDATION_FILE))
-    validation_dataset = DeepFake(paths_list, images_list, labels_list, transform)
-    validation_loader = DataLoader(validation_dataset, batch_size=CNN_BATCH_SIZE)
+    if args.train_all == True:
+        paths_train, images_train, labels_train = read_dataset(os.path.join(DATASET_PATH, TRAIN_FILE))
+        paths_val,  images_val, labels_val = read_dataset(ps.path.join(DATASET_PATH, VALIDATION_FILE))
+        paths_list = paths_val + paths_train
+        images_list = images_val + images_train
+        labels_list = labels_val + labels_train
+        train_dataset = DeepFake(paths_list, images_list, labels_list, transform, faceDetector)
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+        paths_list, images_list, labels_list = read_dataset(os.path.join(DATASET_PATH, TEST_FILE))
+        validation_dataset = DeepFake(paths_list, images_list, labels_list, eval_transform, faceDetector)
+        validation_loader = DataLoader(validation_dataset, batch_size=BATCH_SIZE)
+    
+    else:
+        paths_list, images_list, labels_list = read_dataset(os.path.join(DATASET_PATH, TRAIN_FILE))
+        train_dataset = DeepFake(paths_list, images_list, labels_list, transform, faceDetector)
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+        paths_list, images_list, labels_list = read_dataset(os.path.join(DATASET_PATH, VALIDATION_FILE))
+        validation_dataset = DeepFake(paths_list, images_list, labels_list, eval_transform, faceDetector)
+        validation_loader = DataLoader(validation_dataset, batch_size=BATCH_SIZE)
 
     paths_list, images_list, labels_list = read_dataset(os.path.join(DATASET_PATH, TEST_FILE))
-    test_dataset = DeepFake(paths_list, images_list, labels_list, transform)
-    test_loader = DataLoader(test_dataset, batch_size=CNN_BATCH_SIZE)
+    test_dataset = DeepFake(paths_list, images_list, labels_list, eval_transform, faceDetector)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
 
     # Set SEED in order to obtain deterministic results
     torch.backends.cudnn.deterministic = True  # fix the GPU to deterministic mode
@@ -76,44 +141,116 @@ if __name__ == '__main__':
     random.seed(SEED)  # python seed for image transformation
     np.random.seed(SEED)
 
-    # Load ResNet18 model and add an extra linear layer to fit the binary classification problem  
-    model = torchvision.models.resnet18()
-    model.fc = nn.Sequential(
-        nn.Linear(model.fc.in_features, 512),  
-        nn.ReLU(inplace=True),
-        nn.Linear(512, 1),  
-        nn.Sigmoid()  
-    )
+    # Load ResNet18 model and add an extra linear layer to fit the binary classification problem 
+    if MODEL == "Resnet18":
+        print(f"Using {MODEL}")
+        model = torchvision.models.resnet18()
+        model.fc = nn.Sequential(
+            nn.Linear(model.fc.in_features, 64),  
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 1),  
+            nn.Sigmoid()  
+        )
+    elif MODEL == "Resnet34":
+        print(f"Using {MODEL}")
+        model = torchvision.models.resnet34()
+        model.fc = nn.Sequential(
+            nn.Linear(model.fc.in_features, 64),  
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 1),  
+            nn.Sigmoid() 
+        )
+    elif MODEL == "Resnet50":
+        print(f"Using {MODEL}")
+        model = torchvision.models.resnet50()
+        model.fc = nn.Sequential(
+            nn.Linear(model.fc.in_features, 64),  
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 1),  
+            nn.Sigmoid() 
+        )
+    elif MODEL == "Resnet50Wide":
+        print(f"Using {MODEL}")
+        model = torchvision.models.wide_resnet50_2()
+        model.fc = nn.Sequential(
+            nn.Linear(model.fc.in_features, 64),  
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 1),  
+            nn.Sigmoid() 
+        )
+    elif MODEL == "Resnet101":
+        print(f"Using {MODEL}")
+        model = torchvision.models.resnet101()
+        model.fc = nn.Sequential(
+            nn.Linear(model.fc.in_features, 64),  
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 1),  
+            nn.Sigmoid() 
+        )
+    elif MODEL == "VGG11":
+        print(f"Using {MODEL}")
+        model = torchvision.models.vgg11()
+        model.classifier[6] = nn.Sequential(
+            nn.Linear(model.classifier[6].in_features, 1),
+            nn.Sigmoid()    
+        ) 
+    elif MODEL == "VGG13":
+        print(f"Using {MODEL}")
+        model = torchvision.models.vgg13()
+        model.classifier[6] = nn.Sequential(
+            nn.Linear(model.classifier[6].in_features, 1),
+            nn.Sigmoid()    
+        ) 
+    elif MODEL == "VGG16":
+        print(f"Using {MODEL}")
+        model = torchvision.models.vgg16()
+        model.classifier[6] = nn.Sequential(
+            nn.Linear(model.classifier[6].in_features, 1),
+            nn.Sigmoid()    
+        )
+    elif MODEL == "VGG19":
+        print(f"Using {MODEL}")
+        model = torchvision.models.vgg19()
+        model.classifier[6] = nn.Sequential(
+            nn.Linear(model.classifier[6].in_features, 1),
+            nn.Sigmoid()    
+        ) 
 
     # Select the weight initialization technique (in case is seleted) 
-    if CNN_WEIGHT_INIT == 'Xavier_Uniform':
+    if INIT == 'Xavier_Uniform':
         print(f'Initialization with Xavier Uniform...')
         model.apply(initialize_weights_xavier_uniform)
-    elif CNN_WEIGHT_INIT == 'Xavier_Normal':
+    elif INIT == 'Xavier_Normal':
         print(f'Initialization with Xavier Normal...')
         model.apply(initialize_weights_xavier_normal)
-    elif CNN_WEIGHT_INIT == 'He':
+    elif INIT == 'He':
         print(f'Initialization with He (Kaiming Uniform)...')
-        model.apply()
+        model.apply(initialize_weights_he)
     else:
         print(f'No initialization of weights')
         pass
 
-    print(model)
+    if args.show_model == True:
+        print(model)
 
     # Select GPU if available 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'Using:{device}')
 
     # Optimizer Adam and Binary Cross Entropy Loss 
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=CNN_LEARNING_RATE)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=LEARNING_RATE)
     criterion = nn.BCELoss()
     
     # Perform training 
     list_loss_train, list_acc_train, list_loss_val, list_acc_val = train_model(model, train_loader, validation_loader, \
-                                                                               test_loader, optimizer, criterion, CNN_NUM_EPOCHS, device)
-    # Test model  
-    list_loss_test, list_acc_test, list_test_outputs, list_test_labels = test_model(model, test_loader, criterion, device)
+                                                                               test_loader, optimizer, criterion, EPOCHS, device, RESULTS_PATH)
+    # Best model over the validation dataset  
+    best_model = model
+    best_model.load_state_dict(torch.load(os.path.join(RESULTS_PATH, 'best_val.pth')))
+    # Obtain best validation results for printing 
+    best_val_acc, best_val_loss, best_val_ROC = validate_model(best_model, validation_loader, criterion, device)
+    # Perform Test  
+    loss_test, accuracy_test, list_test_outputs, list_test_labels = test_model(best_model, test_loader, criterion, device)
     
     # Save the loss and accuracy figure  
     x = range(1, len(list_loss_train)+1)
@@ -123,7 +260,7 @@ if __name__ == '__main__':
     plt.title('Training and Validation Loss Function')
     plt.ylabel('BCELoss()')
     plt.legend()
-    plt.savefig(os.path.join(save_model_results, 'train_loss.png'))
+    plt.savefig(os.path.join(RESULTS_PATH, 'train_loss.png'))
     plt.close()
 
     plt.plot(x, list_acc_train, label='Train')
@@ -131,29 +268,21 @@ if __name__ == '__main__':
     plt.title('Training and Validation Accuracy')
     plt.ylabel('[%]')
     plt.legend()
-    plt.savefig(os.path.join(save_model_results, 'train_acc.png'))
+    plt.savefig(os.path.join(RESULTS_PATH, 'train_acc.png'))
     plt.close()
 
     # Save the model weigths 
-    torch.save(model.state_dict(), os.path.join(save_model_path, model_name + '.pth'))
+    torch.save(best_model.state_dict(), os.path.join(RESULTS_PATH, model_name + '.pth'))
 
     # Save test results for threshold testing 
-    save_test_results(list_test_outputs, list_test_labels, os.path.join(save_model_results, model_name + '_test_results.csv'))
+    save_test_results(list_test_outputs, list_test_labels, os.path.join(RESULTS_PATH, model_name + '_test_results.csv'))
 
     # Compute ROC and save the figure 
-    fpr, tpr, thresholds = roc_curve(list_test_labels, list_test_outputs)
-    roc_auc = auc(fpr, tpr)
+    roc_auc, fpr, tpr = computeROC(list_test_labels, list_test_outputs, RESULTS_PATH)
 
-    plt.figure()
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC)')
-    plt.legend(loc="lower right")
-    plt.savefig(os.path.join(save_model_results, 'ROC.png'))
-    plt.close()    
+    print(f'Test => Loss: {loss_test:.4f}, Accuracy:{accuracy_test:.4f}%, AUC:{roc_auc:.4f}')
+
+    with open(os.path.join(RESULTS_PATH, "results.txt"), 'w') as file:
+        file.write(f"Validation => acc: {best_val_acc} loss: {best_val_loss} AUC:{best_val_ROC}\n")
+        file.write(f"Test acc: {accuracy_test} loss: {loss_test} AUC:{roc_auc}\n")
     
-    debug = 1

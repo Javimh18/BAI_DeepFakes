@@ -2,6 +2,7 @@ import csv, cv2, torch, os
 from config import DATASET_PATH
 from torch.utils.data import Dataset
 from PIL import Image
+import numpy as np
 
 def read_dataset(file_name):
     # Function to read the .csv training files
@@ -40,19 +41,34 @@ def save_test_results(list_outputs, list_labels, file_name):
             writer.writerow([item1, item2])
 
 class DeepFake(Dataset):
-    def __init__(self, paths, images, labels, transform):
+    def __init__(self, paths, images, labels, transform, facedetector):
         self.paths = paths
         self.images = images
         self.labels = labels
         self.transform = transform
+        self.facedetector = facedetector
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, item):
 
+        margin = 25
+
         path_image = os.path.join(DATASET_PATH, self.paths[item], self.images[item])
-        image = cv2.imread(path_image)
+        image = Image.open(path_image)
+       # print(np.shape(image))
+        boxes, _ = self.facedetector.detect(image)
+       # print(boxes)
+
+        if np.any(boxes):
+            x1 = int(boxes[0][0])
+            y1 = int(boxes[0][1])
+            x2 = int(boxes[0][2])
+            y2 = int(boxes[0][3])
+            
+            image = image.crop((x1-margin, y1-margin, x2+margin, y2+margin))
+
         image_transform = self.transform(image)
         label = self._get_label(item)
         label_transform = torch.tensor(float(label))
