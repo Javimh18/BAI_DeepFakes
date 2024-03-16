@@ -164,3 +164,4 @@ cython_debug/
 *.png
 *.pth
 *DS_Store*
+*.npy
