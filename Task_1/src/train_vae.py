@@ -1,6 +1,6 @@
 from vae import VAE
-from config import IM_HEIGHT, IM_WIDTH, DATASET_PATH, MEAN, STD, \
-    VAE_ALPHA, VAE_EPOCHS, VAE_LR, VAE_WEIGHT_DECAY, VAE_BETAS, VAE_REG_PAR
+from config import VAE_IM_HEIGHT, VAE_IM_WIDTH, DATASET_PATH, MEAN, STD, \
+    VAE_EPOCHS, VAE_LR, VAE_REG_PAR, VAE_BETAS, VAE_WEIGHT_DECAY, VAE_BATCH_SIZE
 from dataset_utils import VAE_DeepFake
 from train_utils import VAETrainer
 
@@ -24,15 +24,15 @@ if __name__ == '__main__':
         device = "cpu"
     
     # model definition and initialization
-    model = VAE(input_size=(3, IM_HEIGHT, IM_WIDTH),
-                    latent_dim=512,
+    model = VAE(input_size=(3, VAE_IM_HEIGHT, VAE_IM_WIDTH),
+                    latent_dim=2048,
                     n_convLayers=5,
-                    n_convChannels=[512, 256, 128, 64, 32],
+                    n_convChannels=[256, 128, 64, 32, 64],
                     filter_sizes=[4, 3, 3, 3, 3],
-                    strides=[2, 2, 1, 1, (2,1)], # change it for (1,2) in the last layer's stride
+                    strides=[2, 1, 1, 1, (2,1)], # change it for (1,2) in the last layer's stride
                     n_fcLayer=1, 
-                    n_hidden_dims=[1024])
-    summary(model.to(device), (3, IM_HEIGHT, IM_WIDTH))
+                    n_hidden_dims=[4096])
+    summary(model.to(device), (3, VAE_IM_HEIGHT, VAE_IM_WIDTH))
     
     transform_pre_train = transforms.Compose([
         # Rotación con una probabilidad del 50%
@@ -49,26 +49,26 @@ if __name__ == '__main__':
     ])
     
     train_dataset = VAE_DeepFake(DATASET_PATH, 'train', transform_pre_train, \
-        transforms.Resize((IM_HEIGHT,IM_WIDTH), antialias=True))
+        transforms.Resize((VAE_IM_HEIGHT,VAE_IM_WIDTH), antialias=True))
     val_dataset = VAE_DeepFake(DATASET_PATH, 'validation', transform_pre_val, \
-        transforms.Resize((IM_HEIGHT,IM_WIDTH), antialias=True))
+        transforms.Resize((VAE_IM_HEIGHT,VAE_IM_WIDTH), antialias=True))
     
         # instanciate dataloaders
     train_dataloader = DataLoader(dataset=train_dataset, 
-                                  batch_size=32, 
+                                  batch_size=VAE_BATCH_SIZE, 
                                   shuffle=True, 
                                   num_workers=os.cpu_count(),
                                   collate_fn=default_collate)
     
     val_dataloader = DataLoader(dataset=val_dataset, 
-                                batch_size=32, 
+                                batch_size=VAE_BATCH_SIZE, 
                                 shuffle=True, 
                                 num_workers=os.cpu_count(),
                                 collate_fn=default_collate)
     
     # Setting up for training
     trainables = [p for p in model.parameters() if p.requires_grad]
-    optimizer = Adamax(trainables, lr=VAE_LR)
+    optimizer = Adamax(trainables, lr=VAE_LR, betas=VAE_BETAS, weight_decay=VAE_WEIGHT_DECAY)
     trainer = VAETrainer(model, 
                          optimizer, 
                          train_dataloader, 
