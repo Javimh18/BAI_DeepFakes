@@ -80,6 +80,7 @@ if __name__ == '__main__':
             EXITING...")
         exit(-1)
     
+    # create directories if there is not any
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     
@@ -109,7 +110,7 @@ if __name__ == '__main__':
     
     # saving image information
     if args.input_image:
-        save_image_and_latent_space(args.input_image, args.output_image, args.feat_dir, transform)
+        save_image_and_latent_space(vae, args.output_image, args.feat_dir, transform)
     else:
         for im_name in tqdm(os.listdir(args.input_dir)):
             if 'fake' in args.input_dir:
